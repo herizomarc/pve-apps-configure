@@ -1,46 +1,75 @@
-# ====================================================================
-# GITOPS CONFIGURATION PIPELINE: PURE DYNAMIC PROXMOX PLUGINS WORKFLOW
-# ====================================================================
+# =============================================================
+# ENTERPRISE GITOPS PIPELINE: LOGICAL CONTAINER BUILD & RUNTIME
+# =============================================================
 
 stages:
+  - build-image
   - configure
 
 variables:
-  ANSIBLE_IMAGE: "docker.io/alpine/ansible:2.21.0"
+  # ➔ TARGETS LOCAL REGISTRY: Store the computed image inside your local GitLab registry
+  ANSIBLE_CUSTOM_IMAGE: "${CI_REGISTRY_IMAGE}/ansible-custom:1.0"
   VAULT_PASS_FILE: "/var/lib/gitlab-runner/secure-vars/vault-password.txt"
   RUNNER_SSH_KEY: "/var/lib/gitlab-runner/secure-vars/priv_key_secops"
-  #Path to the local secure variables holding Proxmox API access credentials
-  SECURE_ENV: "/var/lib/gitlab-runner/secure-vars/production.tfvars"
+  SECURE_TFVARS: "/var/lib/gitlab-runner/secure-vars/production.tfvars"
+
   
 
+# =========================================================================
+#  STAGE 1: COMPILING THE HARDENED RUNTIME IMAGE
+# =========================================================================
+build_runtime_image:
+  stage: build-image
+  tags:
+    - image-builder
+  script:
+    - 'echo "=== 1. AUTHENTICATING TO PORTABLE CONTAINER REGISTRY ==="'
+    - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    
+    - 'echo "=== 2. COMPILING CUSTOM REUSABLE RUNTIME APPLIANCE ==="'
+    - podman build --no-cache -t "${ANSIBLE_CUSTOM_IMAGE}" .
+    
+    - 'echo "=== 3. PUSHING IMMUTABLE IMAGE ARTIFACT TO LOCAL REGISTRY ==="'
+    - podman push "${ANSIBLE_CUSTOM_IMAGE}"
+  only:
+    changes:
+      - Dockerfile
 
+# =========================================================================
+# STAGE 2: ENTERPRISE CONFIGURATION ROUTINES
+# =========================================================================
 ansible_configure:
   stage: configure
   tags:
-    - image-builder # Targets the dedicated internal RHEL Runner node
+    - image-builder
+  needs:
+    - job: build_runtime_image
+      optional: true # Skips build and instantly runs if Dockerfile is unchanged
   before_script:
     - |
-      if [ ! -f "${VAULT_PASS_FILE}" ]; then
-        echo "CRITICAL ERROR: Ansible Vault password file ${VAULT_PASS_FILE} missing on Runner disk!"
-        exit 1
-      fi
-      if [ ! -f "${RUNNER_SSH_KEY}" ]; then
-        echo "CRITICAL ERROR: Private SSH Key ${RUNNER_SSH_KEY} missing on Runner disk!"
-        exit 1
-      fi
-      if [ ! -f "${SECURE_ENV}" ]; then 
-        echo "Source secure environment file missing!"
-        exit 1 
+      if [ ! -f "${VAULT_PASS_FILE}" ]; then echo "Ansible Vault password file missing!"; exit 1; fi
+      if [ ! -f "${SECURE_TFVARS}" ]; then echo "Source secure tfvars file missing!"; exit 1; fi
+    
+    # ➔ SECOPS TRANSFORMATION LAYER: Sourcing and clean-splitting the single TOKEN_ID block into RAM
+    - |
+      if [ -f "${SECURE_TFVARS}" ]; then
+        source "${SECURE_TFVARS}"
+        export ANSIBLE_PROXMOX_USER=$(echo "${PROXMOX_TOKEN_ID}" | cut -d'!' -f1)
+        export ANSIBLE_PROXMOX_TOKEN_NAME=$(echo "${PROXMOX_TOKEN_ID}" | cut -d'!' -f2)
+        export ANSIBLE_PROXMOX_PASSWORD="${PROXMOX_TOKEN_SECRET}"
+        export ANSIBLE_PROXMOX_URL="${PROXMOX_URL}"
       fi
   script:
-    - 'echo "=== 1. STARTING SECURE SSH AGENT AND LOADING KEY IN RAM ==="'
+    - 'echo "=== 1. LOADING PRIVATE IDENTITY KEY INSIDE EPHEMERAL RAM ==="'
     - eval $(ssh-agent -s)
     - chmod 600 "${RUNNER_SSH_KEY}"
     - ssh-add "${RUNNER_SSH_KEY}"
     
-    - 'echo "=== 2. LAUNCHING CONTAINERIZED ANSIBLE CONFIGURATION VIA SOCKET ==="'
-    # Executing rootless: container never sees the physical key, communicates via RAM UNIX 
-    # Pass the token variables file directly via --env-file to feed the Proxmox Python SDK inside the container
+    - 'echo "=== 2. LAUNCHING SECURED CONTAINERIZED DYNAMIC PROXMOX PLAYBOOK ==="'
+    # Login to registry to allow container pulls on transient environments
+    - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    
+    # Enforced secure specific mounts to preserve runner .git integrity
     - |
       podman run --rm \
         -v "${CI_PROJECT_DIR}/site.yml":/workspace/site.yml:z,U \
@@ -48,31 +77,21 @@ ansible_configure:
         -v "${CI_PROJECT_DIR}/roles":/workspace/roles:z,U \
         -v "${VAULT_PASS_FILE}":/vault-password.txt:ro \
         -v "${SSH_AUTH_SOCK}":/ssh-agent.sock \
-        --env-file "${SECURE_ENV}" \
+        -e ANSIBLE_PROXMOX_USER -e ANSIBLE_PROXMOX_TOKEN_NAME -e ANSIBLE_PROXMOX_PASSWORD -e ANSIBLE_PROXMOX_URL \
         -e SSH_AUTH_SOCK=/ssh-agent.sock \
         -e ANSIBLE_HOST_KEY_CHECKING=False \
         -e PROXMOX_INVALID_CERT_OK=True \
         --security-opt label=disable \
         -w /workspace \
-        ${ANSIBLE_IMAGE} \
-        /bin/sh -c "
-          echo '=== Provisioning native package manager layers (python3/pip3) ===' &&
-          apk add --no-cache python3 py3-pip &&
-          echo '=== Installing native Python Proxmox SDK dependencies ===' &&
-          pip3 install --no-cache-dir requests proxmoxer --break-system-packages &&
-          ansible-galaxy collection install community.proxmox &&
-          ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
-        "
-        
+        "${ANSIBLE_CUSTOM_IMAGE}" \
+        ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
     -  sudo chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
   artifacts:
     name: "openbao-credentials-${CI_COMMIT_SHORT_SHA}"
     paths:
-      # SECURE EXTRACTION: Offload this dynamic credentials mapping file right after green build
       - openbao-credentials.json
-    expire_in: 2 hours # Tight enforcement boundary for security compliance limits
+    expire_in: 2 hours
   only:
     - main
-#ee
