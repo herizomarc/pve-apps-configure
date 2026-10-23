@@ -1,0 +1,30 @@
+# ==============================================
+# OPENBAO HARDENED PRODUCTION CONFINEMENT SCHEMA
+# ==============================================
+
+# Clustered Storage Engine: Mapping records to the isolated 15GB XFS LVM boundary
+storage "raft" {
+  path    = "/srv/openbao"
+  node_id = "{{ ansible_hostname }}"
+}
+
+# Cryptographic Network Layer: Enforcing strict HTTPS (TLS) server listeners
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  cluster_address = "0.0.0.0:8201"
+  
+  # TLS Private and Public Key Mappings
+  tls_disable = 0
+  tls_cert_file = "/etc/openbao/certs/openbao.crt"
+  tls_key_file  = "/etc/openbao/certs/openbao.key"
+  
+  # Cipher Suite Security Boundaries: Restricting connection cipher handshakes
+  tls_min_version = "tls12"
+}
+
+# ➔ Dynamic Clustered Topology API and Cluster Endpoint Advertisement
+cluster_addr = "https://{{ ansible_host }}:8201"
+api_addr     = "https://{{ ansible_host }}:8200"
+
+disable_mlock = true # Allowed since process capabilities are constrained by RHEL9 systemd layout
+ui            = true

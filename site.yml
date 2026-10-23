@@ -1,0 +1,25 @@
+---
+# ==========================================================
+# PLAY 1: DEPLOY AND HARDEN SOVEREIGN SECRET VAULT (OPENBAO)
+# ==========================================================
+- name: Deploy and Harden Production OpenBao Secret Vault
+  hosts: openbao
+  become: true
+  become_method: sudo
+  roles:
+    - role: openbao_setup
+
+# ===============================================
+# FUTURE PLAYS: RESERVED FOR NEXT UPCOMING JALONS
+# ===============================================
+# - name: Deploy Enterprise Observability Central Stack
+#   hosts: monitoring
+#   become: true
+#   roles:
+#     - role: monitoring_setup
+#
+# - name: Deploy Hardened Kubernetes Node Layers
+#   hosts: kubernetes
+#   become: true
+#   roles:
+#     - role: kubernetes_setup

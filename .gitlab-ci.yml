@@ -1,0 +1,71 @@
+# =============================================================
+# GITOPS CONFIGURATION PIPELINE: PURE ROOTLESS ANSIBLE WORKFLOW
+# =============================================================
+
+stages:
+  - configure
+
+variables:
+  ANSIBLE_IMAGE: "docker.io/alpine/ansible:2.21.0"
+  VAULT_PASS_FILE: "/var/lib/gitlab-runner/secure-vars/vault-password.txt"
+  RUNNER_SSH_KEY: "/var/lib/gitlab-runner/secure-vars/priv_key_secops"
+  # TARGET PROJECT CONNECTION: Assign the unique GitLab Project ID of the pure IaaS pve-infra-iac layer
+  INFRA_PROJECT_ID: "87783405" 
+
+
+ansible_configure:
+  stage: configure
+  tags:
+    - image-builder # Targets the dedicated internal RHEL Runner node
+  before_script:
+    - |
+      if [ ! -f "${VAULT_PASS_FILE}" ]; then
+        echo "CRITICAL ERROR: Ansible Vault password file ${VAULT_PASS_FILE} missing on Runner disk!"
+        exit 1
+      fi
+      if [ ! -f "${RUNNER_SSH_KEY}" ]; then
+        echo "CRITICAL ERROR: Private SSH Key ${RUNNER_SSH_KEY} missing on Runner disk!"
+        exit 1
+      fi
+      # ARTIFACT INGESTION: Dynamic retrieval of the matrix inventory map from the IaaS repository via GitLab API
+    - mkdir -p ansible-inventory
+    - |
+      curl --location --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        "https://${CI_SERVER_HOST}/api/v4/projects/${INFRA_PROJECT_ID}/jobs/artifacts/main/raw/ansible-inventory/hosts.ini?job=tofu_apply" \
+        -o ansible-inventory/hosts.ini
+    - |
+      if [ ! -s "ansible-inventory/hosts.ini" ]; then
+        echo "CRITICAL ERROR: Fetched hosts.ini is empty or download failed!"
+        exit 1
+      fi      
+  script:
+    - 'echo "=== 1. STARTING SECURE SSH AGENT AND LOADING KEY IN RAM ==="'
+    - eval $(ssh-agent -s)
+    - chmod 600 "${RUNNER_SSH_KEY}"
+    - ssh-add "${RUNNER_SSH_KEY}"
+    
+    - 'echo "=== 2. LAUNCHING CONTAINERIZED ANSIBLE CONFIGURATION VIA SOCKET ==="'
+    # Executing rootless: container never sees the physical key, communicates via RAM UNIX Socket
+    - |
+      podman run --rm \
+        -v "${CI_PROJECT_DIR}":/workspace:z,U \
+        -v "${VAULT_PASS_FILE}":/vault-password.txt:ro \
+        -v "${SSH_AUTH_SOCK}":/ssh-agent.sock \
+        -e SSH_AUTH_SOCK=/ssh-agent.sock \
+        -e ANSIBLE_HOST_KEY_CHECKING=False \
+        -e ANSIBLE_SSH_ARGS="-o WarnWeakCrypto=no" \
+        --security-opt label=disable \
+        -w /workspace/ansible-openbao \
+        ${ANSIBLE_IMAGE} \
+        ansible-playbook -i ansible-inventory/hosts.ini site.yml --vault-password-file /vault-password.txt
+  after_script:
+    - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
+    - 'chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"'
+  artifacts:
+    name: "openbao-credentials-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      # SECURE EXTRACTION: Offload this dynamic credentials mapping file right after green build
+      - ansible-inventory/openbao-credentials.json
+    expire_in: 2 hours # Tight enforcement boundary for security compliance limits
+  only:
+    - main
