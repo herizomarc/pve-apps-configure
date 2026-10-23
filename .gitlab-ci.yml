@@ -53,8 +53,12 @@ ansible_configure:
         --security-opt label=disable \
         -w /workspace \
         ${ANSIBLE_IMAGE} \
-        ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
-
+        /bin/sh -c "
+          echo '=== Installing native Python Proxmox SDK dependencies inside transient container ===' &&
+          pip3 install --no-cache-dir requests proxmoxer &&
+          ansible-galaxy collection install community.proxmox &&
+          ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
+        "
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
     - podman unshare chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
