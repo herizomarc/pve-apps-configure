@@ -13,9 +13,9 @@ token_id: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_TOKEN_ID') }}"
 token_secret: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_TOKEN_SECRET') }}"
 validate_certs: false
 
-# ➔ NETWORK ROUTING FIX: Override the connection target with the raw guest agent IPv4 interface
+# ➔ NETWORK ROUTING FIX: Extract strictly the first valid dynamic guest IPv4 address mapping
 compose:
-  ansible_host: proxmox_agent_interfaces[0].ip_addresses[0]
+  ansible_host: proxmox_agent_interfaces | selectattr('ip-address-type', 'equalto', 'ipv4') | map(attribute='ip-address') | first
 
 # ➔ AUTOMATED GITOPS GROUPING: Sorting nodes on-the-fly using hostnames
 strict: false
