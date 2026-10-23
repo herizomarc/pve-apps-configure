@@ -1,18 +1,23 @@
 ---
+# =========================================================================
+# 👑 ENTERPRISE PROXMOX VE DYNAMIC INVENTORY INGESTION ENGINE
+# =========================================================================
 plugin: community.proxmox.proxmox
 want_dns_info: false
 want_guest_agent: true
 validate_certs: false
 want_facts: true
 
+# ➔ SECOPS ALIGNED LOOKUPS: Ingestion of container environment variables
 url: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_URL') }}"
 user: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_USER') }}"
 token_id: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_TOKEN_ID') }}"
 token_secret: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_TOKEN_SECRET') }}"
 
-# Dynamic object splitting pattern targeting native dictionary mapping keys
+# ➔ INDUSTRIAL OVERRIDE: Enforcing target connection parameters mapping
 compose:
   ansible_host: proxmox_ipconfig0.ip.split('/') | first
+  ansible_user: "secops" # ➔ FIXED: Overrides default container root user to enforce secops identity
 
 strict: false
 keyed_groups:
