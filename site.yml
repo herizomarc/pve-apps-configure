@@ -1,25 +1,19 @@
 ---
-# ==========================================================
-# PLAY 1: DEPLOY AND HARDEN SOVEREIGN SECRET VAULT (OPENBAO)
-# ==========================================================
+# ===========================================================
+# PLAY 1: TARGETING AUTOMATED DYNAMIC PROXMOX GROUP (OPENBAO)
+# ===========================================================
 - name: Deploy and Harden Production OpenBao Secret Vault
-  hosts: openbao
+  hosts: vm_openbao_prod_01  #  Matches the exact dynamic group syntax built by the plugin from the VM name
   become: true
   become_method: sudo
   roles:
     - role: openbao_setup
 
-# ===============================================
-# FUTURE PLAYS: RESERVED FOR NEXT UPCOMING JALONS
-# ===============================================
+# ======================================================================
+#  FUTURE PLAYS: RESERVED BOUNDARIES FOR UPCOMING TECH STACKS (SCALABLE)
+# ======================================================================
 # - name: Deploy Enterprise Observability Central Stack
-#   hosts: monitoring
+#   hosts: vm_monitoring_prod_01 #  Will match  milestone 3 VM seamlessly
 #   become: true
 #   roles:
 #     - role: monitoring_setup
-#
-# - name: Deploy Hardened Kubernetes Node Layers
-#   hosts: kubernetes
-#   become: true
-#   roles:
-#     - role: kubernetes_setup
