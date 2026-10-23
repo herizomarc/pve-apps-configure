@@ -52,13 +52,20 @@ ansible_configure:
     
     # ➔ SECOPS TRANSFORMATION LAYER: Sourcing and clean-splitting the single TOKEN_ID block into RAM
     - |
-      if [ -f "${SECURE_TFVARS}" ]; then
-        source "${SECURE_TFVARS}"
-        export ANSIBLE_PROXMOX_USER=$(echo "${PROXMOX_TOKEN_ID}" | cut -d'!' -f1)
-        export ANSIBLE_PROXMOX_TOKEN_NAME=$(echo "${PROXMOX_TOKEN_ID}" | cut -d'!' -f2)
-        export ANSIBLE_PROXMOX_PASSWORD="${PROXMOX_TOKEN_SECRET}"
-        export ANSIBLE_PROXMOX_URL="${PROXMOX_URL}"
-      fi
+      echo "=== Loading and translating infrastructure credentials in RAM ==="
+      
+      # 1. Extract raw configuration fields, removing spaces and outer quotes
+      RAW_URL=$(sed -n 's/^PROXMOX_URL *= *"*\([^#"]*\)"*/\1/p' "${SECURE_TFVARS}" | xargs)
+      RAW_TOKEN_ID=$(sed -n 's/^PROXMOX_TOKEN_ID *= *"*\([^#"]*\)"*/\1/p' "${SECURE_TFVARS}" | xargs)
+      RAW_SECRET=$(sed -n 's/^PROXMOX_TOKEN_SECRET *= *"*\([^#"]*\)"*/\1/p' "${SECURE_TFVARS}" | xargs)
+      
+      # 2. Map straight to native Ansible Proxmox environment variables
+      export ANSIBLE_PROXMOX_URL="${RAW_URL}"
+      export ANSIBLE_PROXMOX_PASSWORD="${RAW_SECRET}"
+      
+      # 3. Clean-split the TOKEN_ID boundary using bash substring parameters
+      export ANSIBLE_PROXMOX_USER=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f1)
+      export ANSIBLE_PROXMOX_TOKEN_NAME=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f2)
   script:
     - 'echo "=== 1. LOADING PRIVATE IDENTITY KEY INSIDE EPHEMERAL RAM ==="'
     - eval $(ssh-agent -s)
