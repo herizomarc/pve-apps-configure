@@ -20,3 +20,4 @@ RUN ansible-galaxy collection install community.proxmox
 
 # Set clean execution boundaries
 WORKDIR /workspace
+#force rerun

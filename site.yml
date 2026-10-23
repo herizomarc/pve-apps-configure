@@ -3,7 +3,7 @@
 # PLAY 1: TARGETING AUTOMATED DYNAMIC PROXMOX GROUP (OPENBAO)
 # ===========================================================
 - name: Deploy and Harden Production OpenBao Secret Vault
-  hosts: vm_openbao_prod_01  #  Matches the exact dynamic group syntax built by the plugin from the VM name
+  hosts: vm-openbao-prod-01  #  Matches the exact dynamic group syntax built by the plugin from the VM name
   become: true
   become_method: sudo
   roles:
