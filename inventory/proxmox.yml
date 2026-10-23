@@ -1,16 +1,15 @@
 ---
-# ==============================================
+# =========================================================================
 # PROXMOX VE DYNAMIC INVENTORY INGESTION ENGINE
-# ==============================================
+# =========================================================================
 plugin: community.proxmox.proxmox
 want_dns_info: false
 want_guest_agent: true # Enforces real-time IPv4 gathering via QEMU Guest Agent
-strict: false
+validate_certs: false
 
 # ➔ AUTOMATED GITOPS GROUPING: Sorting nodes on-the-fly using hostnames
+strict: false
 keyed_groups:
   - prefix: ""
     key: name
     separator: ""
-
-    

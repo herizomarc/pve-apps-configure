@@ -1,42 +1,34 @@
-# =============================================================
-# ENTERPRISE GITOPS PIPELINE: LOGICAL CONTAINER BUILD & RUNTIME
-# =============================================================
+# =========================================================================
+# 🏆 ENTERPRISE GITOPS PIPELINE: LOGICAL CONTAINER BUILD & RUNTIME
+# =========================================================================
 
 stages:
   - build-image
   - configure
 
 variables:
-  # ➔ TARGETS LOCAL REGISTRY: Store the computed image inside your local GitLab registry
   ANSIBLE_CUSTOM_IMAGE: "${CI_REGISTRY_IMAGE}/ansible-custom:1.0"
   VAULT_PASS_FILE: "/var/lib/gitlab-runner/secure-vars/vault-password.txt"
   RUNNER_SSH_KEY: "/var/lib/gitlab-runner/secure-vars/priv_key_secops"
   SECURE_TFVARS: "/var/lib/gitlab-runner/secure-vars/production.tfvars"
 
-  
-
 # =========================================================================
-#  STAGE 1: COMPILING THE HARDENED RUNTIME IMAGE
+# 🛠️ STAGE 1: COMPILING THE HARDENED RUNTIME IMAGE
 # =========================================================================
 build_runtime_image:
   stage: build-image
   tags:
     - image-builder
   script:
-    - 'echo "=== 1. AUTHENTICATING TO PORTABLE CONTAINER REGISTRY ==="'
     - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
-    
-    - 'echo "=== 2. COMPILING CUSTOM REUSABLE RUNTIME APPLIANCE ==="'
     - podman build --no-cache -t "${ANSIBLE_CUSTOM_IMAGE}" .
-    
-    - 'echo "=== 3. PUSHING IMMUTABLE IMAGE ARTIFACT TO LOCAL REGISTRY ==="'
     - podman push "${ANSIBLE_CUSTOM_IMAGE}"
   only:
     changes:
       - Dockerfile
 
 # =========================================================================
-# STAGE 2: ENTERPRISE CONFIGURATION ROUTINES
+# 🚀 STAGE 2: ENTERPRISE CONFIGURATION ROUTINES
 # =========================================================================
 ansible_configure:
   stage: configure
@@ -44,39 +36,35 @@ ansible_configure:
     - image-builder
   needs:
     - job: build_runtime_image
-      optional: true # Skips build and instantly runs if Dockerfile is unchanged
+      optional: true
   before_script:
     - |
       if [ ! -f "${VAULT_PASS_FILE}" ]; then echo "Ansible Vault password file missing!"; exit 1; fi
       if [ ! -f "${SECURE_TFVARS}" ]; then echo "Source secure tfvars file missing!"; exit 1; fi
     
-    # ➔ SECOPS TRANSFORMATION LAYER: Sourcing and clean-splitting the single TOKEN_ID block into RAM
+    # ➔ SECOPS ALIGNED PARSING: Parsing configuration fields and mapping keys to exact Ansible expectations
     - |
-      echo "=== Loading and translating infrastructure credentials in RAM ==="
+      echo "=== Sourcing and translating infrastructure credentials in RAM ==="
+      RAW_URL=$(grep -E "^PROXMOX_URL" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
+      RAW_TOKEN_ID=$(grep -E "^PROXMOX_TOKEN_ID" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
+      RAW_SECRET=$(grep -E "^PROXMOX_TOKEN_SECRET" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
       
-      # 1. Extract raw configuration fields, removing spaces and outer quotes
-      RAW_URL=$(sed -n 's/^PROXMOX_URL *= *"*\([^#"]*\)"*/\1/p' "${SECURE_TFVARS}" | xargs)
-      RAW_TOKEN_ID=$(sed -n 's/^PROXMOX_TOKEN_ID *= *"*\([^#"]*\)"*/\1/p' "${SECURE_TFVARS}" | xargs)
-      RAW_SECRET=$(sed -n 's/^PROXMOX_TOKEN_SECRET *= *"*\([^#"]*\)"*/\1/p' "${SECURE_TFVARS}" | xargs)
-      
-      # 2. Map straight to native Ansible Proxmox environment variables
+      # Mapping to native Ansible Proxmox environment parameters based on your successful test
       export ANSIBLE_PROXMOX_URL="${RAW_URL}"
-      export ANSIBLE_PROXMOX_PASSWORD="${RAW_SECRET}"
-      
-      # 3. Clean-split the TOKEN_ID boundary using bash substring parameters
+      export ANSIBLE_PROXMOX_TOKEN_SECRET="${RAW_SECRET}"
       export ANSIBLE_PROXMOX_USER=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f1)
-      export ANSIBLE_PROXMOX_TOKEN_NAME=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f2)
+      export ANSIBLE_PROXMOX_TOKEN_ID=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f2) # ➔ FIXED ALIGNMENT
+      
+      if [ -z "${ANSIBLE_PROXMOX_USER}" ] || [ -z "${ANSIBLE_PROXMOX_TOKEN_ID}" ]; then
+        echo "CRITICAL ERROR: High-level variables extraction returned empty nodes!"
+        exit 1
+      fi
   script:
-    - 'echo "=== 1. LOADING PRIVATE IDENTITY KEY INSIDE EPHEMERAL RAM ==="'
     - eval $(ssh-agent -s)
     - chmod 600 "${RUNNER_SSH_KEY}"
     - ssh-add "${RUNNER_SSH_KEY}"
     
-    - 'echo "=== 2. LAUNCHING SECURED CONTAINERIZED DYNAMIC PROXMOX PLAYBOOK ==="'
-    # Login to registry to allow container pulls on transient environments
     - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
-    
-    # Enforced secure specific mounts to preserve runner .git integrity
     - |
       podman run --rm \
         -v "${CI_PROJECT_DIR}/site.yml":/workspace/site.yml:z,U \
@@ -84,7 +72,7 @@ ansible_configure:
         -v "${CI_PROJECT_DIR}/roles":/workspace/roles:z,U \
         -v "${VAULT_PASS_FILE}":/vault-password.txt:ro \
         -v "${SSH_AUTH_SOCK}":/ssh-agent.sock \
-        -e ANSIBLE_PROXMOX_USER -e ANSIBLE_PROXMOX_TOKEN_NAME -e ANSIBLE_PROXMOX_PASSWORD -e ANSIBLE_PROXMOX_URL \
+        -e ANSIBLE_PROXMOX_USER -e ANSIBLE_PROXMOX_TOKEN_ID -e ANSIBLE_PROXMOX_TOKEN_SECRET -e ANSIBLE_PROXMOX_URL \
         -e SSH_AUTH_SOCK=/ssh-agent.sock \
         -e ANSIBLE_HOST_KEY_CHECKING=False \
         -e PROXMOX_INVALID_CERT_OK=True \
