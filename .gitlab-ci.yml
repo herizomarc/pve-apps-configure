@@ -55,9 +55,9 @@ ansible_configure:
         -e ANSIBLE_HOST_KEY_CHECKING=False \
         -e ANSIBLE_SSH_ARGS="-o WarnWeakCrypto=no" \
         --security-opt label=disable \
-        -w /workspace/ansible-openbao \
+        -w /workspace \
         ${ANSIBLE_IMAGE} \
-        ansible-playbook -i ../ansible-inventory/hosts.ini site.yml --vault-password-file /vault-password.txt
+        ansible-playbook -i ansible-inventory/hosts.ini site.yml --vault-password-file /vault-password.txt
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
     - 'chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"'
