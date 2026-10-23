@@ -42,8 +42,10 @@ ansible_configure:
     # Executing rootless: container never sees the physical key, communicates via RAM UNIX 
     # Pass the token variables file directly via --env-file to feed the Proxmox Python SDK inside the container
     - |
-       podman run --rm \
-        -v "${CI_PROJECT_DIR}":/workspace:z,U \
+      podman run --rm \
+        -v "${CI_PROJECT_DIR}/site.yml":/workspace/site.yml:z,U \
+        -v "${CI_PROJECT_DIR}/inventory":/workspace/inventory:z,U \
+        -v "${CI_PROJECT_DIR}/roles":/workspace/roles:z,U \
         -v "${VAULT_PASS_FILE}":/vault-password.txt:ro \
         -v "${SSH_AUTH_SOCK}":/ssh-agent.sock \
         --env-file "${SECURE_ENV}" \
@@ -54,11 +56,14 @@ ansible_configure:
         -w /workspace \
         ${ANSIBLE_IMAGE} \
         /bin/sh -c "
-          echo '=== Installing native Python Proxmox SDK dependencies inside transient container ===' &&
-          pip3 install --no-cache-dir requests proxmoxer &&
+          echo '=== Provisioning native package manager layers (python3/pip3) ===' &&
+          apk add --no-cache python3 py3-pip &&
+          echo '=== Installing native Python Proxmox SDK dependencies ===' &&
+          pip3 install --no-cache-dir requests proxmoxer --break-system-packages &&
           ansible-galaxy collection install community.proxmox &&
           ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
         "
+        
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
     -  sudo chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
