@@ -61,7 +61,7 @@ ansible_configure:
         "
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
-    - podman unshare chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
+    -  sudo chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
   artifacts:
     name: "openbao-credentials-${CI_COMMIT_SHORT_SHA}"
     paths:
@@ -70,3 +70,4 @@ ansible_configure:
     expire_in: 2 hours # Tight enforcement boundary for security compliance limits
   only:
     - main
+#ee
