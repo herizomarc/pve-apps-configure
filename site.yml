@@ -1,19 +1,15 @@
 ---
-# ===========================================================
-# PLAY 1: TARGETING AUTOMATED DYNAMIC PROXMOX GROUP (OPENBAO)
-# ===========================================================
+# =========================================================================
+# 🛡️ PLAY 1: TARGETING AUTOMATED NATIVE PROXMOX INSTANCE NAME
+# =========================================================================
 - name: Deploy and Harden Production OpenBao Secret Vault
-  hosts: vm-openbao-prod-01  #  Matches the exact dynamic group syntax built by the plugin from the VM name
+  hosts: vm-openbao-prod-01
   become: true
   become_method: sudo
+  
+  # ➔ SECOPS UNREACHABLE BYPASS: Force a non-privileged neutral path for execution scripts
+  vars:
+    ansible_remote_tmp: /tmp/ansible-secops
+
   roles:
     - role: openbao_setup
-
-# ======================================================================
-#  FUTURE PLAYS: RESERVED BOUNDARIES FOR UPCOMING TECH STACKS (SCALABLE)
-# ======================================================================
-# - name: Deploy Enterprise Observability Central Stack
-#   hosts: vm_monitoring_prod_01 #  Will match  milestone 3 VM seamlessly
-#   become: true
-#   roles:
-#     - role: monitoring_setup
