@@ -41,29 +41,20 @@ ansible_configure:
     - |
       if [ ! -f "${VAULT_PASS_FILE}" ]; then echo "Ansible Vault password file missing!"; exit 1; fi
       if [ ! -f "${SECURE_TFVARS}" ]; then echo "Source secure tfvars file missing!"; exit 1; fi
-    
-    # ➔ SECOPS ALIGNED PARSING: Parsing configuration fields and mapping keys to exact Ansible expectations
     - |
       echo "=== Sourcing and translating infrastructure credentials in RAM ==="
       RAW_URL=$(grep -E "^PROXMOX_URL" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
       RAW_TOKEN_ID=$(grep -E "^PROXMOX_TOKEN_ID" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
       RAW_SECRET=$(grep -E "^PROXMOX_TOKEN_SECRET" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
       
-      # Mapping to native Ansible Proxmox environment parameters based on your successful test
       export ANSIBLE_PROXMOX_URL="${RAW_URL}"
       export ANSIBLE_PROXMOX_TOKEN_SECRET="${RAW_SECRET}"
       export ANSIBLE_PROXMOX_USER=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f1)
-      export ANSIBLE_PROXMOX_TOKEN_ID=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f2) # ➔ FIXED ALIGNMENT
-      
-      if [ -z "${ANSIBLE_PROXMOX_USER}" ] || [ -z "${ANSIBLE_PROXMOX_TOKEN_ID}" ]; then
-        echo "CRITICAL ERROR: High-level variables extraction returned empty nodes!"
-        exit 1
-      fi
+      export ANSIBLE_PROXMOX_TOKEN_ID=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f2)
   script:
     - eval $(ssh-agent -s)
     - chmod 600 "${RUNNER_SSH_KEY}"
     - ssh-add "${RUNNER_SSH_KEY}"
-    
     - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
     - |
       podman run --rm \
@@ -75,11 +66,11 @@ ansible_configure:
         -e ANSIBLE_PROXMOX_USER -e ANSIBLE_PROXMOX_TOKEN_ID -e ANSIBLE_PROXMOX_TOKEN_SECRET -e ANSIBLE_PROXMOX_URL \
         -e SSH_AUTH_SOCK=/ssh-agent.sock \
         -e ANSIBLE_HOST_KEY_CHECKING=False \
-        -e PROXMOX_INVALID_CERT_OK=True \
         --security-opt label=disable \
         -w /workspace \
         "${ANSIBLE_CUSTOM_IMAGE}" \
         ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
+
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
     -  sudo chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"

@@ -1,10 +1,16 @@
 ---
 # =========================================================================
-# PROXMOX VE DYNAMIC INVENTORY INGESTION ENGINE
+# 👑 ENTERPRISE PROXMOX VE DYNAMIC INVENTORY INGESTION ENGINE
 # =========================================================================
 plugin: community.proxmox.proxmox
 want_dns_info: false
 want_guest_agent: true # Enforces real-time IPv4 gathering via QEMU Guest Agent
+
+# ➔ SECOPS ALIGNED LOOKUPS: Native ingestion of container environment variables
+url: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_URL') }}"
+user: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_USER') }}"
+token_id: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_TOKEN_ID') }}"
+token_secret: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PROXMOX_TOKEN_SECRET') }}"
 validate_certs: false
 
 # ➔ AUTOMATED GITOPS GROUPING: Sorting nodes on-the-fly using hostnames
