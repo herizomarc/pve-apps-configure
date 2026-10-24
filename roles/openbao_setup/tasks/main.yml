@@ -67,6 +67,9 @@
     vg: vg_openbao
     lv: lv_data
     size: 100%FREE
+    #IDEMPOTENCE: Blocks any accidental shrinking computations if the layout is already deployed
+    resize_policy: no
+
 
 - name: Format the logical volume with enterprise XFS filesystem
   community.general.filesystem:
