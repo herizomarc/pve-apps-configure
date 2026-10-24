@@ -62,13 +62,17 @@
     vg: vg_openbao
     pvs: /dev/sdb
 
+- name: Check if the logical volume already exists on disk
+  ansible.builtin.stat:
+    path: /dev/vg_openbao/lv_data
+  register: lvol_status
+
 - name: Create Logical Volume for clustered Raft database storage
   community.general.lvol:
     vg: vg_openbao
     lv: lv_data
     size: 100%FREE
-    #IDEMPOTENCE: Blocks any accidental shrinking computations if the layout is already deployed
-    resize_policy: no
+  when: not lvol_status.stat.exists
 
 
 - name: Format the logical volume with enterprise XFS filesystem
