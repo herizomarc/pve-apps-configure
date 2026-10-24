@@ -1,3 +1,35 @@
+# =========================================================================
+# 🏆 ENTERPRISE GITOPS PIPELINE: LOGICAL CONTAINER BUILD & RUNTIME
+# =========================================================================
+
+stages:
+  - build-image
+  - configure
+
+variables:
+  ANSIBLE_CUSTOM_IMAGE: "${CI_REGISTRY_IMAGE}/ansible-custom:1.0"
+  VAULT_PASS_FILE: "/var/lib/gitlab-runner/secure-vars/vault-password.txt"
+  RUNNER_SSH_KEY: "/var/lib/gitlab-runner/secure-vars/priv_key_secops"
+  SECURE_TFVARS: "/var/lib/gitlab-runner/secure-vars/production.tfvars"
+
+# =========================================================================
+# 🛠️ STAGE 1: COMPILING THE HARDENED RUNTIME IMAGE
+# =========================================================================
+build_runtime_image:
+  stage: build-image
+  tags:
+    - image-builder
+  script:
+    - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    - podman build --no-cache -t "${ANSIBLE_CUSTOM_IMAGE}" .
+    - podman push "${ANSIBLE_CUSTOM_IMAGE}"
+  only:
+    changes:
+      - Dockerfile
+
+# =========================================================================
+# 🚀 STAGE 2: ENTERPRISE CONFIGURATION ROUTINES
+# =========================================================================
 # (La section stage: build-image reste strictement inchangée)
 
 ansible_configure:
@@ -45,7 +77,6 @@ ansible_configure:
   after_script:
     - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
     -  sudo chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
-  
   artifacts:
     name: "openbao-credentials-${CI_COMMIT_SHORT_SHA}"
     paths:
