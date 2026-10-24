@@ -1,0 +1,81 @@
+# ===========================================
+# PIPELINE: LOGICAL CONTAINER BUILD & RUNTIME
+# ===========================================
+
+stages:
+  - build-image
+  - configure
+
+variables:
+  ANSIBLE_CUSTOM_IMAGE: "${CI_REGISTRY_IMAGE}/ansible-custom:1.0"
+  VAULT_PASS_FILE: "/var/lib/gitlab-runner/secure-vars/vault-password.txt"
+  RUNNER_SSH_KEY: "/var/lib/gitlab-runner/secure-vars/priv_key_secops"
+  SECURE_TFVARS: "/var/lib/gitlab-runner/secure-vars/production.tfvars"
+
+# =============================================
+# STAGE 1: COMPILING THE HARDENED RUNTIME IMAGE
+# =============================================
+build_runtime_image:
+  stage: build-image
+  tags:
+    - image-builder
+  script:
+    - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    - podman build --no-cache -t "${ANSIBLE_CUSTOM_IMAGE}" .
+    - podman push "${ANSIBLE_CUSTOM_IMAGE}"
+  only:
+    changes:
+      - Dockerfile
+
+# ====================================
+#  STAGE 2: CONFIGURATION ROUTINES
+# ====================================
+
+ansible_configure:
+  stage: configure
+  tags:
+    - image-builder
+  needs:
+    - job: build_runtime_image
+      optional: true
+  before_script:
+    - |
+      if [ ! -f "${VAULT_PASS_FILE}" ]; then echo "Ansible Vault password file missing!"; exit 1; fi
+      if [ ! -f "${SECURE_TFVARS}" ]; then echo "Source secure tfvars file missing!"; exit 1; fi
+    - |
+      echo "=== Sourcing and translating infrastructure credentials in RAM ==="
+      RAW_URL=$(grep -E "^PROXMOX_URL" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
+      RAW_TOKEN_ID=$(grep -E "^PROXMOX_TOKEN_ID" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
+      RAW_SECRET=$(grep -E "^PROXMOX_TOKEN_SECRET" "${SECURE_TFVARS}" | cut -d'=' -f2- | tr -d '"' | xargs)
+      
+      export ANSIBLE_PROXMOX_URL="${RAW_URL}"
+      export ANSIBLE_PROXMOX_TOKEN_SECRET="${RAW_SECRET}"
+      export ANSIBLE_PROXMOX_USER=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f1)
+      export ANSIBLE_PROXMOX_TOKEN_ID=$(echo "${RAW_TOKEN_ID}" | cut -d'!' -f2)
+  script:
+    - eval $(ssh-agent -s)
+    - chmod 600 "${RUNNER_SSH_KEY}"
+    - ssh-add "${RUNNER_SSH_KEY}"
+    - podman login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    - |
+      podman run --rm \
+        -v "${CI_PROJECT_DIR}/site.yml":/workspace/site.yml:z,U \
+        -v "${CI_PROJECT_DIR}/inventory":/workspace/inventory:z,U \
+        -v "${CI_PROJECT_DIR}/roles":/workspace/roles:z,U \
+        -v "${CI_PROJECT_DIR}/group_vars":/workspace/group_vars:z,U \
+        -v "${VAULT_PASS_FILE}":/vault-password.txt:ro \
+        -v "${SSH_AUTH_SOCK}":/ssh-agent.sock \
+        -e ANSIBLE_PROXMOX_USER -e ANSIBLE_PROXMOX_TOKEN_ID -e ANSIBLE_PROXMOX_TOKEN_SECRET -e ANSIBLE_PROXMOX_URL \
+        -e SSH_AUTH_SOCK=/ssh-agent.sock \
+        -e ANSIBLE_HOST_KEY_CHECKING=False \
+        --security-opt label=disable \
+        -w /workspace \
+        "${ANSIBLE_CUSTOM_IMAGE}" \
+        ansible-playbook -i inventory/proxmox.yml site.yml --vault-password-file /vault-password.txt
+  
+  after_script:
+    - 'echo "=== CLEANUP: Restoring workspace files permissions to gitlab-runner ==="'
+    -  sudo chown -R gitlab-runner:gitlab-runner "${CI_PROJECT_DIR}"
+  
+  only:
+    - main

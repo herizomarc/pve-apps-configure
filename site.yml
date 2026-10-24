@@ -1,0 +1,15 @@
+---
+# =========================================================
+# PLAY 1: TARGETING AUTOMATED NATIVE PROXMOX INSTANCE NAME
+# =========================================================
+- name: Deploy and Harden Production OpenBao Secret Vault
+  hosts: vm-openbao-prod-01
+  become: true
+  become_method: sudo
+  
+  #Force a non-privileged neutral path for execution scripts
+  vars:
+    ansible_remote_tmp: /tmp/ansible-secops
+
+  roles:
+    - role: openbao_setup

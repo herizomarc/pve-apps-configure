@@ -1,0 +1,236 @@
+---
+# ==============================================================
+# PHASE 1 : SUBSCRIPTION & DEPENDENCIES INSTALLATION (DNF BLOCK)
+# ==============================================================
+- name: Register system to Red Hat Subscription Manager using Activation Key
+  community.general.redhat_subscription:
+    state: present
+    org_id: "{{ rhsm_org_id }}"
+    activationkey: "{{ rhsm_activation_key }}"
+    force_register: yes
+
+- name: Enable official Red Hat software repositories including CodeReady (CRB)
+  community.general.rhsm_repository:
+    name:
+      - rhel-9-for-x86_64-baseos-rpms
+      - rhel-9-for-x86_64-appstream-rpms
+      - codeready-builder-for-rhel-9-x86_64-rpms
+    state: enabled
+
+- name: Execute baseline system security upgrades via DNF
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    exclude: kernel*
+    update_cache: yes
+
+- name: Provision platform tooling, firewall systems, and storage utilities
+  ansible.builtin.dnf:
+    name:
+      - policycoreutils-python-utils  # SELinux tooling
+      - firewalld                     # Firewall daemon core
+      - python3-firewall              # Ansible firewall bindings
+      - lvm2                          # Logical Volume Management tools
+      - python3-cryptography          # Required by community.crypto to sign certificates locally
+    state: present
+
+- name: Configure official OpenBao secure RPM repository with strict SSL verification
+  ansible.builtin.yum_repository:
+    name: openbao
+    description: OpenBao Official Stable Repository
+    baseurl: https://pkgs.openbao.org/rpm/$basearch
+    enabled: true
+    gpgcheck: true
+    repo_gpgcheck: false
+    gpgkey: https://openbao.org/assets/openbao-gpg-pub-20240618.asc
+    sslverify: true
+    sslcacert: /etc/pki/tls/certs/ca-bundle.crt
+    metadata_expire: "300"
+    mode: '0644'
+
+
+- name: Install official OpenBao runtime server binary package
+  ansible.builtin.dnf:
+    name: openbao
+    state: present
+
+# ==========================================================
+# PHASE 2 : STORAGE PROVISIONING & INFRASTRUCTURE BOUNDARIES
+# ==========================================================
+- name: Create Volume Group on top of /dev/sdb hardware boundary
+  community.general.lvg:
+    vg: vg_openbao
+    pvs: /dev/sdb
+
+- name: Check if the logical volume already exists on disk
+  ansible.builtin.stat:
+    path: /dev/vg_openbao/lv_data
+  register: lvol_status
+
+- name: Create Logical Volume for clustered Raft database storage
+  community.general.lvol:
+    vg: vg_openbao
+    lv: lv_data
+    size: 100%FREE
+  when: not lvol_status.stat.exists
+
+
+- name: Format the logical volume with enterprise XFS filesystem
+  community.general.filesystem:
+    fstype: xfs
+    dev: /dev/mapper/vg_openbao-lv_data
+
+- name: Enforce secure storage mount directory layout
+  ansible.builtin.file:
+    path: /srv/openbao
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Mount and bind partition mapping to /srv/openbao permanently
+  ansible.posix.mount:
+    path: /srv/openbao
+    src: /dev/mapper/vg_openbao-lv_data
+    fstype: xfs
+    opts: defaults
+    state: mounted
+
+- name: Restructure volume ownership for the openbao system user
+  ansible.builtin.file:
+    path: /srv/openbao
+    owner: openbao
+    group: openbao
+    state: directory
+    recurse: yes
+
+# =====================================================================
+# PHASE 3 : HARDENING & NETWORK SECURITY POLICIES (SELINUX & FIREWALLD)
+# =====================================================================
+- name: Allow OpenBao Cluster replication port inside SELinux policy maps
+  community.general.seport:
+    ports: "8201"
+    proto: tcp
+    setype: trivnet1_port_t
+    state: present
+
+- name: Enforce firewalld systemd state synchronization and enable at boot
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: yes
+    masked: no
+
+- name: Open OpenBao API port (8200) inside Firewalld permanent zone
+  ansible.posix.firewalld:
+    port: 8200/tcp
+    permanent: yes
+    state: enabled
+    immediate: yes
+    zone: public
+
+- name: Open OpenBao Cluster replication port (8201) inside Firewalld permanent zone
+  ansible.posix.firewalld:
+    port: 8201/tcp
+    permanent: yes
+    state: enabled
+    immediate: yes
+    zone: public
+
+# =======================================================
+# PHASE 4: TLS CRYPTOGRAPHIC AUTOMATION & RUNTIME STARTUP
+# =======================================================
+- name: Establish dedicated directory bounds for storing TLS certificates
+  ansible.builtin.file:
+    path: /etc/openbao/certs
+    state: directory
+    owner: root
+    group: openbao
+    mode: '0750'
+
+- name: Generate an enterprise-grade 4096-bit RSA private key for server TLS handshakes
+  community.crypto.openssl_privatekey:
+    path: /etc/openbao/certs/openbao.key
+    type: RSA
+    size: 4096
+    owner: root
+    group: openbao
+    mode: '0640'
+
+- name: Compile a Certificate Signing Request (CSR) binding local IP/DNS networks
+  community.crypto.openssl_csr:
+    path: /etc/openbao/certs/openbao.csr
+    privatekey_path: /etc/openbao/certs/openbao.key
+    common_name: "{{ ansible_host }}"
+    subject_alt_name:
+      - "IP:{{ ansible_host }}"
+      - "DNS:{{ ansible_hostname }}"
+    owner: root
+    group: openbao
+
+- name: Issue and sign the final self-signed X.509 certificate for bootstrap testing
+  community.crypto.x509_certificate:
+    path: /etc/openbao/certs/openbao.crt
+    privatekey_path: /etc/openbao/certs/openbao.key
+    csr_path: /etc/openbao/certs/openbao.csr
+    provider: selfsigned
+    selfsigned_not_after: "+365d" # Valid for exactly 365 production runtime days
+    owner: root
+    group: openbao
+    mode: '0640'
+
+- name: Render and deploy the production-hardened bao.hcl configuration engine
+  ansible.builtin.template:
+    src: bao.hcl.j2
+    dest: /etc/openbao/bao.hcl
+    owner: root
+    group: openbao
+    mode: '0640'
+  notify: Restart OpenBao Service # Triggering structural handler only if changes are detected
+
+- name: Trigger systemd daemon-reload and enable openbao boot runtime execution
+  ansible.builtin.systemd:
+    name: openbao
+    enabled: yes
+    state: started
+
+# ===============================================================
+# PHASE 5:  AUTOMATED BOOTSTRAP INITIALIZATION (DAY-0 ONLY)
+# ===============================================================
+- name: Wait for OpenBao HTTPS API endpoint to become responsive
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200"
+    method: GET
+    # 200 = init/unsealed, 501 = uninitialized, 503 = sealed/initialized
+    status_code: [200, 501, 503]
+    validate_certs: no
+  register: openbao_health
+  until: openbao_health.status is defined
+  retries: 15
+  delay: 2
+
+- name: Execute automated sovereign initialization if vault is pristine
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:8200"
+    method: PUT
+    body_format: json
+    body:
+      secret_shares: 5
+      secret_threshold: 3
+    validate_certs: no
+  register: openbao_init_output
+  # Triggers initialization only if the health check returns HTTP 501 (Uninitialized)
+  when: openbao_health.status == 501
+
+# COMPLIANT DISPLAY: Stream keys to GitLab log console ONCE during creation
+- name: |
+    🛑 SECURITY WARNING: COPY AND SECURE THESE MASTER UNSEAL KEYS NOW! 🛑
+    These keys will NEVER be displayed again.
+  ansible.builtin.debug:
+    msg: 
+      - "=== OPENBAO SOUVEREIGN UNSEAL KEYS ==="
+      - "{{ openbao_init_output.json.keys_base64 }}"
+      - "=== INITIAL ROOT TOKEN ==="
+      - "{{ openbao_init_output.json.root_token }}"
+  when: openbao_init_output.changed and openbao_init_output.json is defined
+  no_log: false # Temporarily allowed here to let you grab your keys from the GitLab build console
