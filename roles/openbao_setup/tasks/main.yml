@@ -96,6 +96,20 @@
     opts: defaults
     state: mounted
 
+# Eradicating RHEL packaging default directories 
+# to block state contamination before configuration injection
+- name: Permanently remove default deployment data footprints
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /opt/openbao
+    - /var/lib/openbao
+    - /var/lib/vault
+
+# =====================================================================
+# PHASE 3 : HARDENING & NETWORK SECURITY POLICIES (SELINUX & FIREWALLD)
+# =====================================================================
 - name: Restructure volume ownership for the openbao system user
   ansible.builtin.file:
     path: /srv/openbao
@@ -104,9 +118,6 @@
     state: directory
     recurse: yes
 
-# =====================================================================
-# PHASE 3 : HARDENING & NETWORK SECURITY POLICIES (SELINUX & FIREWALLD)
-# =====================================================================
 - name: Allow OpenBao Cluster replication port inside SELinux policy maps
   community.general.seport:
     ports: "8201"
@@ -142,57 +153,57 @@
 # =======================================================
 - name: Establish dedicated directory bounds for storing TLS certificates
   ansible.builtin.file:
-    path: /etc/openbao/certs
+    path: /etc/openbao/tls
     state: directory
-    owner: root
+    owner: openbao
     group: openbao
-    mode: '0750'
+    mode: '0700'
 
 - name: Generate an enterprise-grade 4096-bit RSA private key for server TLS handshakes
   community.crypto.openssl_privatekey:
-    path: /etc/openbao/certs/openbao.key
+    path: /etc/openbao/tls/tls.key
     type: RSA
     size: 4096
-    owner: root
+    owner: openbao
     group: openbao
-    mode: '0640'
+    mode: '0600'
 
 - name: Compile a Certificate Signing Request (CSR) binding local IP/DNS networks
   community.crypto.openssl_csr:
-    path: /etc/openbao/certs/openbao.csr
-    privatekey_path: /etc/openbao/certs/openbao.key
-    common_name: "{{ ansible_host }}"
+    path: /etc/openbao/tls/server.csr
+    privatekey_path: /etc/openbao/tls/tls.key
+    common_name: "{{ ansible_facts['hostname'] }}"
     subject_alt_name:
-      - "IP:{{ ansible_host }}"
-      - "DNS:{{ ansible_hostname }}"
-    owner: root
+      - "IP:{{ ansible_facts['host'] }}"
+      - "DNS:{{ ansible_facts['hostname'] }}"
+    owner: openbao
     group: openbao
 
 - name: Issue and sign the final self-signed X.509 certificate for bootstrap testing
   community.crypto.x509_certificate:
-    path: /etc/openbao/certs/openbao.crt
-    privatekey_path: /etc/openbao/certs/openbao.key
-    csr_path: /etc/openbao/certs/openbao.csr
+    path: /etc/openbao/tls/tls.crt
+    csr_path: /etc/openbao/tls/server.csr
+    privatekey_path: /etc/openbao/tls/tls.key
     provider: selfsigned
-    selfsigned_not_after: "+365d" # Valid for exactly 365 production runtime days
-    owner: root
+    owner: openbao
     group: openbao
-    mode: '0640'
+    mode: '0644'
 
+# CORRECTED ORDER: Render configurations BEFORE initiating systemd process hooks
 - name: Render and deploy the production-hardened bao.hcl configuration engine
   ansible.builtin.template:
     src: bao.hcl.j2
     dest: /etc/openbao/bao.hcl
-    owner: root
+    owner: openbao
     group: openbao
     mode: '0640'
-  notify: Restart OpenBao Service # Triggering structural handler only if changes are detected
 
 - name: Trigger systemd daemon-reload and enable openbao boot runtime execution
   ansible.builtin.systemd:
     name: openbao
-    enabled: yes
+    daemon_reload: yes
     state: started
+    enabled: yes
 
 # ===============================================================
 # PHASE 5:  AUTOMATED BOOTSTRAP INITIALIZATION (DAY-0 ONLY)
@@ -201,8 +212,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:8200"
     method: GET
-    # 200 = init/unsealed, 501 = uninitialized, 503 = sealed/initialized
-    status_code: [200, 501, 503]
+    status_code:
     validate_certs: no
   register: openbao_health
   until: openbao_health.status is defined
@@ -219,10 +229,8 @@
       secret_threshold: 3
     validate_certs: no
   register: openbao_init_output
-  # Triggers initialization only if the health check returns HTTP 501 (Uninitialized)
   when: openbao_health.status == 501
 
-# COMPLIANT DISPLAY: Stream keys to GitLab log console ONCE during creation
 - name: |
     🛑 SECURITY WARNING: COPY AND SECURE THESE MASTER UNSEAL KEYS NOW! 🛑
     These keys will NEVER be displayed again.
@@ -233,4 +241,4 @@
       - "=== INITIAL ROOT TOKEN ==="
       - "{{ openbao_init_output.json.root_token }}"
   when: openbao_init_output.changed and openbao_init_output.json is defined
-  no_log: false # Temporarily allowed here to let you grab your keys from the GitLab build console
+  no_log: false
