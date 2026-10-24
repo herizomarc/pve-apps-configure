@@ -174,7 +174,7 @@
     privatekey_path: /etc/openbao/tls/tls.key
     common_name: "{{ ansible_facts['hostname'] }}"
     subject_alt_name:
-      - "IP:{{ ansible_facts['host'] }}"
+      - "IP:{{ ansible_facts['default_ipv4']['address'] }}"
       - "DNS:{{ ansible_facts['hostname'] }}"
     owner: openbao
     group: openbao
