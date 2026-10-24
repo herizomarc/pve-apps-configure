@@ -31,6 +31,7 @@
       - firewalld                     # Firewall daemon core
       - python3-firewall              # Ansible firewall bindings
       - lvm2                          # Logical Volume Management tools
+      - python3-cryptography          # Required by community.crypto to sign certificates locally
     state: present
 
 - name: Configure official OpenBao secure RPM repository with strict SSL verification
