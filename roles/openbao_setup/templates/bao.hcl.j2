@@ -15,8 +15,8 @@ listener "tcp" {
   
   # TLS Private and Public Key Mappings
   tls_disable = 0
-  tls_cert_file = "/etc/openbao/certs/openbao.crt"
-  tls_key_file  = "/etc/openbao/certs/openbao.key"
+  tls_cert_file = "/etc/openbao/tls/tls.crt"
+  tls_key_file  = "/etc/openbao/tls/tls.key"
   
   # Cipher Suite Security Boundaries: Restricting connection cipher handshakes
   tls_min_version = "tls12"

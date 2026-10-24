@@ -193,7 +193,7 @@
 - name: Render and deploy the production-hardened bao.hcl configuration engine
   ansible.builtin.template:
     src: bao.hcl.j2
-    dest: /etc/openbao/bao.hcl
+    dest: /etc/openbao/openbao.hcl
     owner: openbao
     group: openbao
     mode: '0640'
