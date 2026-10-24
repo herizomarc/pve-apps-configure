@@ -201,7 +201,7 @@
   ansible.builtin.uri:
     url: "https://127.0.0.1:8200"
     method: GET
-    status_code: [200, 429, 501, 503] # Accepting initialized, uninitialized or sealed states
+    status_code: [200, 429, 472, 473, 501, 503] # Accepting initialized, uninitialized or sealed states
     validate_certs: no
   register: openbao_health
   until: openbao_health.status is defined
@@ -213,6 +213,7 @@
     url: "https://127.0.0.1:8200"
     method: GET
     validate_certs: no
+    return_content: yes # Guarantees raw string body extraction to prevent empty nodes
   register: openbao_init_status
 
 - name: Execute automated sovereign initialization if vault is pristine
@@ -225,7 +226,8 @@
       secret_threshold: 3
     validate_certs: no
   register: openbao_init_output
-  when: not openbao_init_status.json.initialized
+  # Safely parsing the string payload using from_json filter to bypass dictionary absence
+  when: not (openbao_init_status.content | from_json).initialized
 
 # OUT-OF-BAND CAPTURE: Persisting vault unseal keys inside the container volume mapping
 - name: Securely store master unseal keys and root tokens on the Runner execution workspace
