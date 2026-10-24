@@ -194,27 +194,22 @@
     enabled: yes
     state: started
 
-# ============================================================
-# PHASE 5: GITOPS AUTOMATED BOOTSTRAP, UNSEAL & INITIALIZATION
-# ============================================================
+# =========================================================================
+# 🔐 PHASE 5: GITOPS AUTOMATED BOOTSTRAP, UNSEAL & INITIALIZATION
+# =========================================================================
 - name: Wait for OpenBao HTTPS API endpoint to become responsive
   ansible.builtin.uri:
     url: "https://127.0.0.1:8200"
     method: GET
-    status_code: [200, 429, 472, 473, 501, 503] # Accepting initialized, uninitialized or sealed states
+    # 200 = initialized/unsealed, 501 = uninitialized, 503 = sealed/initialized
+    status_code: [200, 501, 503] 
     validate_certs: no
   register: openbao_health
   until: openbao_health.status is defined
   retries: 15
   delay: 2
 
-- name: Check cryptographic initialization status of the vault engine
-  ansible.builtin.uri:
-    url: "https://127.0.0.1:8200"
-    method: GET
-    validate_certs: no
-    return_content: yes # Guarantees raw string body extraction to prevent empty nodes
-  register: openbao_init_status
+# ➔ SECOPS ELIMINATED: Removed the redundant and empty-prone /sys/init GET task
 
 - name: Execute automated sovereign initialization if vault is pristine
   ansible.builtin.uri:
@@ -226,20 +221,20 @@
       secret_threshold: 3
     validate_certs: no
   register: openbao_init_output
-  # Safely parsing the string payload using from_json filter to bypass dictionary absence
-  when: not (openbao_init_status.content | from_json).initialized
+  # ➔ FIXED: Safe evaluation using the robust health status dictionary gathered upfront
+  when: not openbao_health.json.initialized
 
-# OUT-OF-BAND CAPTURE: Persisting vault unseal keys inside the container volume mapping
+# ➔ OUT-OF-BAND CAPTURE: Persisting vault unseal keys inside the container volume mapping
 - name: Securely store master unseal keys and root tokens on the Runner execution workspace
   ansible.builtin.copy:
     content: "{{ openbao_init_output.json | to_nice_json }}"
-    dest: "/workspace/ansible-inventory/openbao-credentials.json"
+    dest: "/workspace/openbao-credentials.json"
   delegate_to: localhost
   when: openbao_init_output.changed
 
 - name: Read persistent unseal keys from execution context directory
   ansible.builtin.slurp:
-    src: "/workspace/ansible-inventory/openbao-credentials.json"
+    src: "/workspace/openbao-credentials.json"
   register: cached_credentials
   delegate_to: localhost
 
@@ -247,17 +242,18 @@
   ansible.builtin.set_fact:
     vault_keys: "{{ (cached_credentials['content'] | b64decode | from_json)['keys'] }}"
 
-# AUTOMATED UNSEAL ROUTINE: Presenting 3 separate key shares to open the storage layers
+# ➔ AUTOMATED UNSEAL ROUTINE: Presenting 3 separate key shares to open the storage layers
 - name: Perform dynamic automated unseal operations using threshold shares
   ansible.builtin.uri:
-    url: "https://127.0.0"
+    url: "https://127.0.0.1:8200"
     method: PUT
     body_format: json
     body:
       key: "{{ item }}"
     validate_certs: no
   loop:
-    - "{{ vault_keys[0] }}"
-    - "{{ vault_keys[1] }}"
-    - "{{ vault_keys[2] }}"
-  no_log: true # Crucial SecOps boundary: prevents keys leaking inside GitLab CI execution logs
+    - "{{ vault_keys[0] }}" # First key share
+    - "{{ vault_keys[1] }}" # Second key share
+    - "{{ vault_keys[2] }}" # Third key share (Reaches the 3/5 threshold)
+  no_log: yes
+  when: openbao_health.json.sealed or (openbao_init_output.changed is defined and openbao_init_output.changed)
