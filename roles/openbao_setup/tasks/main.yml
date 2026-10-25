@@ -210,18 +210,19 @@
 # ===============================================================
 - name: Wait for OpenBao HTTPS API endpoint to become responsive
   ansible.builtin.uri:
-    url: "https://127.0.0.1:8200"
+    url: "https://127.0.0.1:8200/v1/sys/health"
     method: GET
-    status_code:
+    #Supports 200 (OK), 307 (UI redirect), 501 (New/Uninit), 503 (Sealed)
+    status_code: [200, 307, 501, 503]
     validate_certs: no
   register: openbao_health
   until: openbao_health.status is defined
-  retries: 15
+  retries: 20
   delay: 2
 
 - name: Execute automated sovereign initialization if vault is pristine
   ansible.builtin.uri:
-    url: "https://127.0.0.1:8200"
+    url: "https://127.0.0.1:8200/v1/sys/init"
     method: PUT
     body_format: json
     body:
