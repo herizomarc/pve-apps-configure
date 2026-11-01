@@ -1,13 +1,29 @@
 # Automated Enterprise Configuration Engine 🛡️
 
-A dynamic, continuous configuration management repository tasked with the zero-trust deployment, compliance, and cryptographic bootstrap initialization of core sovereign applications.
+A dynamic, continuous configuration management repository driven by Ansible to provision, secure, and bootstrap core sovereign applications on top of Red Hat Enterprise Linux 9 (RHEL 9) nodes.
 
 ## 🛠️ Architecture & Tech Stack
-* **Configuration Tool:** Ansible `2.21.0` embedded inside custom hardened OCI containers.
-* **Isolation Boundary:** Container workflows explicitly restrict volume mounts to code files (`site.yml`, `inventory`, `roles`, `group_vars`), strictly protecting the host Runner `.git/` runtime metadata.
-* **Secret Storage:** Global environment data encrypted locally via native `group_vars/all.yml` structures.
+
+* **Configuration Tool:** Ansible encapsulated within hardened unprivileged OCI runtime containers.
+* **Target Application:** OpenBao Server (High-Performance Sovereign Open-Source Fork of HashiCorp Vault).
+* **Storage & Compliance:** Clustered Raft database engine on a dedicated 15GB XFS volume, hardened via `firewalld` and custom SELinux mappings.
 
 ## 👑 Advanced GitOps Operations
-* **Dynamic Inventory Discovery:** Powered by the modern `community.proxmox.proxmox` plugin. It completely eliminates static `hosts.ini` files. Hotes are tracked dynamically via live hypervisor REST API queries.
-* **Zero-Trust Memory Streaming:** Private cluster access tokens are safely cut in memory (RAM) via pipeline string processing and streamed straight down into unprivileged container pods using `--env-file`.
-* **Day-0 vs Day-1 Boundary Isolation:** Automatically handles Day-0 pristine application bootstrapping (`v1/sys/health` evaluation) and streams master unseal shares **once** safely to secure build consoles, leaving Day-1 unseal operations to manual, out-of-band security ceremonies.
+
+* **Dynamic Inventory Discovery:** Uses the `community.proxmox.proxmox` plugin to eliminate static host files via live hypervisor REST API queries.
+* **Zero-Trust & PKI Infrastructure:** Streams tokens safely in memory and compiles custom X.509 TLS handshakes with multi-layered Subject Alternative Names (SAN) for health checks.
+* **State Protection:** Implements pre-configuration purge blocks to redirect active runtime configurations directly into `/etc/openbao/openbao.conf`.
+
+## 🔐 Day-0 Automated Bootstrapping & Local Sealing
+
+Implements an in-memory Day-0 initialization sequence during Unified Phase 5, isolating automation blocks from master keys to prevent cleartext leakage. The raw initialization JSON payload is captured in transient memory and written securely to `/root/openbao-master-keys.json` (`0400` permissions).
+
+---
+
+## 🔓 Accessing Master Keys for Manual Unsealing
+
+To retrieve the credentials locally on the target RHEL 9 VM as root:
+
+```bash
+sudo cat /root/openbao-master-keys.json
+```
