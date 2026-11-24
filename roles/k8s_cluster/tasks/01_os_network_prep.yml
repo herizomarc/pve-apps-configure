@@ -1,0 +1,108 @@
+﻿---
+- name: 1. Detect NetworkManager connection name on eth0 (Mgmt VLAN 99)
+  ansible.builtin.shell: |
+    nmcli -t -f NAME,DEVICE connection show | grep ':eth0$' | cut -d: -f1
+  register: mgmt_conn
+  changed_when: false
+
+- name: 2. Add persistent static route for Admin VLAN ({{ admin_workstation_subnet }} via {{ mgmt_gateway }})
+  ansible.builtin.command: >
+    nmcli connection modify "{{ mgmt_conn.stdout }}"
+    ipv4.routes "{{ admin_workstation_subnet }} {{ mgmt_gateway }}"
+  changed_when: false
+
+- name: 3. Apply NetworkManager connection profile
+  ansible.builtin.command: nmcli connection up "{{ mgmt_conn.stdout }}"
+  changed_when: false
+
+- name: 4. Populate /etc/hosts dynamically from k8s_cluster_nodes variable
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED KUBERNETES NODES"
+    block: |
+      {% for node in k8s_cluster_nodes %}
+      {{ node.mgmt_ip }} {{ node.name }}.{{ domain_name }} {{ node.name }}
+      {% endfor %}
+
+- name: 5. Install EN/FR locales, SELinux policies, and network tools
+  ansible.builtin.dnf:
+    name:
+      - glibc-langpack-en
+      - glibc-langpack-fr
+      - container-selinux
+      - iproute-tc
+      - conntrack-tools
+      - chrony
+      - tar
+    state: present
+
+- name: 6. Ensure SELinux remains strictly in Enforcing mode
+  ansible.posix.selinux:
+    policy: targeted
+    state: enforcing
+
+- name: 7a. Disable default public NTP pools in /etc/chrony.conf
+  ansible.builtin.replace:
+    path: /etc/chrony.conf
+    regexp: '^(pool|server)\s+(?!{{ ntp_server_ip | regex_escape }})'
+    replace: '# \1 '
+
+- name: 7b. Configure chronyd to use internal NTP server ({{ ntp_server_ip }}) exclusively
+  ansible.builtin.copy:
+    dest: /etc/chrony.d/mikrotik-ntp.conf
+    mode: '0644'
+    content: |
+      server {{ ntp_server_ip }} iburst prefer
+
+- name: 7c. Restart and enable chronyd time synchronization
+  ansible.builtin.systemd:
+    name: chronyd
+    enabled: true
+    state: restarted
+
+- name: 8. Set system locale (en_US.UTF-8) and French keyboard layout
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - localectl set-locale LANG=en_US.UTF-8
+    - localectl set-keymap fr
+  changed_when: false
+
+- name: 9. Disable swap immediately
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+  changed_when: false
+
+- name: 10. Comment out swap entries permanently in /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+.*)$'
+    replace: '# \1'
+
+- name: 11. Configure Kubernetes kernel modules (overlay & br_netfilter)
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    mode: '0644'
+    content: |
+      overlay
+      br_netfilter
+
+- name: 12. Load kernel modules immediately
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: 13. Configure sysctl parameters for Kubernetes networking
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes-cri.conf
+    mode: '0644'
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+
+- name: 14. Apply sysctl settings
+  ansible.builtin.command: sysctl --system
+  changed_when: false

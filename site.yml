@@ -1,4 +1,4 @@
----
+﻿---
 # =========================================================
 # PLAY 1: TARGETING AUTOMATED NATIVE PROXMOX INSTANCE NAME
 # =========================================================
@@ -6,10 +6,22 @@
   hosts: vm-openbao-prod-01
   become: true
   become_method: sudo
-  
-  #Force a non-privileged neutral path for execution scripts
   vars:
     ansible_remote_tmp: /tmp/ansible-secops
-
   roles:
     - role: openbao_setup
+
+# =========================================================
+# PLAY 2: BOOTSTRAP KUBERNETES CLUSTER (KUBEADM + CILIUM)
+# =========================================================
+- name: Bootstrap Sovereign RHEL 9 Kubernetes Cluster (kubeadm)
+  hosts:
+    - vm-k8s-cp-01
+    - vm-k8s-wk1-01
+    - vm-k8s-wk2-01
+  become: true
+  become_method: sudo
+  vars:
+    ansible_remote_tmp: /tmp/ansible-secops
+  roles:
+    - role: k8s_cluster

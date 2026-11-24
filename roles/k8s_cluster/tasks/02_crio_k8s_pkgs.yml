@@ -1,0 +1,60 @@
+﻿---
+- name: 1. Add official CRI-O v{{ crio_version }} YUM repository
+  ansible.builtin.yum_repository:
+    name: cri-o
+    description: CRI-O Official Repository v{{ crio_version }}
+    baseurl: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/rpm/"
+    gpgcheck: true
+    gpgkey: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}/rpm/repodata/repomd.xml.key"
+
+
+- name: 2. Add official Kubernetes v{{ k8s_version }} YUM repository
+  ansible.builtin.yum_repository:
+    name: kubernetes
+    description: Kubernetes Official Repository v{{ k8s_version }}
+    baseurl: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/rpm/"
+    gpgcheck: true
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/rpm/repodata/repomd.xml.key"
+    exclude: kubelet kubeadm kubectl cri-tools kubernetes-cni
+
+- name: 3. Install CRI-O runtime and Kubernetes packages (kubelet, kubeadm, kubectl)
+  ansible.builtin.dnf:
+    name:
+      - cri-o
+      - kubelet
+      - kubeadm
+      - kubectl
+    disable_excludes: kubernetes
+    state: present
+
+- name: 4. Enable and start CRI-O service (Native Systemd cgroup & SELinux Enforcing)
+  ansible.builtin.systemd:
+    name: crio
+    enabled: true
+    state: started
+
+- name: 5. Bind kubelet explicitly to Mgmt IP ({{ ansible_host }}) and CRI-O socket
+  ansible.builtin.copy:
+    dest: /etc/sysconfig/kubelet
+    mode: '0644'
+    content: |
+      KUBELET_EXTRA_ARGS="--node-ip={{ ansible_host }} --container-runtime-endpoint=unix:///var/run/crio/crio.sock"
+
+- name: 6. Configure firewalld rules for Kubernetes & Cilium
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop:
+    - 6443/tcp
+    - 2379-2380/tcp
+    - 10250-10259/tcp
+    - 30000-32767/tcp
+    - 4240/tcp
+    - 8472/udp
+
+- name: 7. Enable kubelet service
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true

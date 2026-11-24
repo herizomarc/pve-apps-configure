@@ -1,0 +1,34 @@
+﻿---
+# =========================================================================
+# CENTRALIZED VARIABLES: KUBERNETES CLUSTER & NETWORK TOPOLOGY
+# =========================================================================
+
+# Kubernetes & CNI Versions
+k8s_version: "1.36"
+crio_version: "1.36"
+cilium_cli_version: "v0.16.19"
+
+# Internal Kubernetes Overlay Subnets (Non-overlapping with 10.10.x.x)
+k8s_pod_subnet: "10.244.0.0/16"
+k8s_service_subnet: "10.96.0.0/12"
+
+# Physical & Management Network Infrastructure
+domain_name: "herizor.cloud"
+mgmt_gateway: "10.10.99.1"
+ntp_server_ip: "10.10.99.1"
+admin_workstation_subnet: "10.10.30.0/24"
+
+# Cluster Nodes Inventory Map (Single Source of Truth)
+k8s_cp_host: "vm-k8s-cp-01"
+k8s_cp_mgmt_ip: "10.10.99.40"
+
+k8s_cluster_nodes:
+  - name: "vm-k8s-cp-01"
+    mgmt_ip: "10.10.99.40"
+    prod_ip: "10.10.10.10"
+  - name: "vm-k8s-wk1-01"
+    mgmt_ip: "10.10.99.41"
+    prod_ip: "10.10.10.11"
+  - name: "vm-k8s-wk2-01"
+    mgmt_ip: "10.10.99.42"
+    prod_ip: "10.10.10.12"

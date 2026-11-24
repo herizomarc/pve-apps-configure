@@ -1,0 +1,29 @@
+﻿---
+- name: Phase 1 — OS Hardening, Locales (EN/FR), SELinux Enforcing & Mgmt Static Route
+  ansible.builtin.include_tasks: 01_os_network_prep.yml
+
+- name: Phase 2 — CRI-O Runtime & Kubernetes 1.36 Binaries (kubeadm/kubelet/kubectl)
+  ansible.builtin.include_tasks: 02_crio_k8s_pkgs.yml
+
+- name: Phase 3 — Initialize Kubernetes Control Plane & Cilium CNI
+  ansible.builtin.include_tasks: 03_control_plane_init.yml
+  when: inventory_hostname == k8s_cp_host
+
+- name: Phase 4 — Join Worker Nodes to the Cluster
+  ansible.builtin.include_tasks: 04_workers_join.yml
+  when: inventory_hostname != k8s_cp_host
+
+- name: Phase 5 — Validate Cluster Nodes Health (Control Plane Check)
+  ansible.builtin.command: kubectl get nodes -o wide
+  become: true
+  become_user: secops
+  environment:
+    KUBECONFIG: /home/secops/.kube/config
+  register: cluster_nodes
+  changed_when: false
+  when: inventory_hostname == k8s_cp_host
+
+- name: Display Kubernetes Cluster Nodes Status
+  ansible.builtin.debug:
+    var: cluster_nodes.stdout_lines
+  when: inventory_hostname == k8s_cp_host

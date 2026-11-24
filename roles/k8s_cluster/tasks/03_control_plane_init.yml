@@ -1,0 +1,52 @@
+﻿---
+- name: Initialize Kubernetes Control Plane with kubeadm
+  ansible.builtin.command: >
+    kubeadm init
+    --apiserver-advertise-address={{ k8s_cp_mgmt_ip }}
+    --pod-network-cidr={{ k8s_pod_subnet }}
+    --service-cidr={{ k8s_service_subnet }}
+  args:
+    creates: /etc/kubernetes/admin.conf
+
+- name: Create .kube directory for secops user
+  ansible.builtin.file:
+    path: /home/secops/.kube
+    state: directory
+    owner: secops
+    group: secops
+    mode: '0700'
+
+- name: Copy admin.conf to secops user kubeconfig
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/secops/.kube/config
+    remote_src: true
+    owner: secops
+    group: secops
+    mode: '0600'
+
+- name: Install Cilium CLI
+  ansible.builtin.unarchive:
+    src: "https://github.com/cilium/cilium-cli/releases/download/{{ cilium_cli_version }}/cilium-linux-amd64.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    creates: /usr/local/bin/cilium
+
+- name: Install Cilium CNI into the cluster
+  ansible.builtin.command: cilium install
+  become: true
+  become_user: secops
+  environment:
+    KUBECONFIG: /home/secops/.kube/config
+  register: cilium_install
+  failed_when: cilium_install.rc != 0 and 'already exists' not in cilium_install.stderr
+  changed_when: cilium_install.rc == 0
+
+- name: Generate kubeadm join command for Worker Nodes
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: k8s_join_cmd
+  changed_when: false
+
+- name: Store join command as host fact
+  ansible.builtin.set_fact:
+    kubeadm_join_command: "{{ k8s_join_cmd.stdout }}"
