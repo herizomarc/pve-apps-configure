@@ -24,7 +24,39 @@
       {{ node.mgmt_ip }} {{ node.name }}.{{ domain_name }} {{ node.name }}
       {% endfor %}
 
-- name: 5. Install EN/FR locales, SELinux policies, and network tools
+- name: 5a. Register system to Red Hat Subscription Manager using Activation Key
+  community.general.redhat_subscription:
+    state: present
+    org_id: "{{ rhsm_org_id }}"
+    activationkey: "{{ rhsm_activation_key }}"
+    force_register: yes
+
+- name: 5b. Enable official Red Hat software repositories including CodeReady (CRB)
+  community.general.rhsm_repository:
+    name:
+      - rhel-9-for-x86_64-baseos-rpms
+      - rhel-9-for-x86_64-appstream-rpms
+      - codeready-builder-for-rhel-9-x86_64-rpms
+    state: enabled
+
+- name: 5c. Execute baseline system security upgrades via DNF
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    exclude: kernel*
+    update_cache: yes
+
+- name: 5d. Provision platform tooling, firewall systems, and storage utilities
+  ansible.builtin.dnf:
+    name:
+      - policycoreutils-python-utils  # SELinux tooling
+      - firewalld                     # Firewall daemon core
+      - python3-firewall              # Ansible firewall bindings
+      - lvm2                          # Logical Volume Management tools
+      - python3-cryptography          # Required by community.crypto to sign certificates locally
+    state: present
+
+- name: 6. Install EN/FR locales, SELinux policies, and network tools
   ansible.builtin.dnf:
     name:
       - glibc-langpack-en
@@ -36,49 +68,49 @@
       - tar
     state: present
 
-- name: 6. Ensure SELinux remains strictly in Enforcing mode
+- name: 7. Ensure SELinux remains strictly in Enforcing mode
   ansible.posix.selinux:
     policy: targeted
     state: enforcing
 
-- name: 7a. Disable default public NTP pools in /etc/chrony.conf
+- name: 8a. Disable default public NTP pools in /etc/chrony.conf
   ansible.builtin.replace:
     path: /etc/chrony.conf
     regexp: '^(pool|server)\s+(?!{{ ntp_server_ip | regex_escape }})'
     replace: '# \1 '
 
-- name: 7b. Configure chronyd to use internal NTP server ({{ ntp_server_ip }}) exclusively
+- name: 8b. Configure chronyd to use internal NTP server ({{ ntp_server_ip }}) exclusively
   ansible.builtin.copy:
     dest: /etc/chrony.d/mikrotik-ntp.conf
     mode: '0644'
     content: |
       server {{ ntp_server_ip }} iburst prefer
 
-- name: 7c. Restart and enable chronyd time synchronization
+- name: 8c. Restart and enable chronyd time synchronization
   ansible.builtin.systemd:
     name: chronyd
     enabled: true
     state: restarted
 
-- name: 8. Set system locale (en_US.UTF-8) and French keyboard layout
+- name: 9. Set system locale (en_US.UTF-8) and French keyboard layout
   ansible.builtin.command: "{{ item }}"
   loop:
     - localectl set-locale LANG=en_US.UTF-8
     - localectl set-keymap fr
   changed_when: false
 
-- name: 9. Disable swap immediately
+- name: 10. Disable swap immediately
   ansible.builtin.command: swapoff -a
   when: ansible_swaptotal_mb > 0
   changed_when: false
 
-- name: 10. Comment out swap entries permanently in /etc/fstab
+- name: 11. Comment out swap entries permanently in /etc/fstab
   ansible.builtin.replace:
     path: /etc/fstab
     regexp: '^([^#].*?\sswap\s+.*)$'
     replace: '# \1'
 
-- name: 11. Configure Kubernetes kernel modules (overlay & br_netfilter)
+- name: 12. Configure Kubernetes kernel modules (overlay & br_netfilter)
   ansible.builtin.copy:
     dest: /etc/modules-load.d/k8s.conf
     mode: '0644'
@@ -86,7 +118,7 @@
       overlay
       br_netfilter
 
-- name: 12. Load kernel modules immediately
+- name: 13. Load kernel modules immediately
   community.general.modprobe:
     name: "{{ item }}"
     state: present
@@ -94,7 +126,7 @@
     - overlay
     - br_netfilter
 
-- name: 13. Configure sysctl parameters for Kubernetes networking
+- name: 14. Configure sysctl parameters for Kubernetes networking
   ansible.builtin.copy:
     dest: /etc/sysctl.d/99-kubernetes-cri.conf
     mode: '0644'
@@ -103,6 +135,6 @@
       net.bridge.bridge-nf-call-ip6tables = 1
       net.ipv4.ip_forward                 = 1
 
-- name: 14. Apply sysctl settings
+- name: 15. Apply sysctl settings
   ansible.builtin.command: sysctl --system
   changed_when: false
