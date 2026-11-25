@@ -80,11 +80,11 @@
     replace: '# \1 '
 
 - name: 8b. Configure chronyd to use internal NTP server ({{ ntp_server_ip }}) exclusively
-  ansible.builtin.copy:
-    dest: /etc/chrony.d/mikrotik-ntp.conf
-    mode: '0644'
-    content: |
-      server {{ ntp_server_ip }} iburst prefer
+  ansible.builtin.lineinfile:
+    path: /etc/chrony.conf
+    regexp: '^server\s+{{ ntp_server_ip | regex_escape }}'
+    line: "server {{ ntp_server_ip }} iburst prefer"
+    state: present
 
 - name: 8c. Restart and enable chronyd time synchronization
   ansible.builtin.systemd:
@@ -138,4 +138,5 @@
 - name: 15. Apply sysctl settings
   ansible.builtin.command: sysctl --system
   changed_when: false
+
 
