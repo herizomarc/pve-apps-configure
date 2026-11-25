@@ -2,14 +2,14 @@
 # =========================================================
 # PLAY 1: TARGETING AUTOMATED NATIVE PROXMOX INSTANCE NAME
 # =========================================================
-- name: Deploy and Harden Production OpenBao Secret Vault
-  hosts: vm-openbao-prod-01
-  become: true
-  become_method: sudo
-  vars:
-    ansible_remote_tmp: /tmp/ansible-secops
-  roles:
-    - role: openbao_setup
+#- name: Deploy and Harden Production OpenBao Secret Vault
+#  hosts: vm-openbao-prod-01
+#  become: true
+#  become_method: sudo
+  #vars:
+   # ansible_remote_tmp: /tmp/ansible-secops
+  #roles:
+   # - role: openbao_setup
 
 # =========================================================
 # PLAY 2: BOOTSTRAP KUBERNETES CLUSTER (KUBEADM + CILIUM)
