@@ -4,8 +4,8 @@
 # =========================================================================
 
 # Kubernetes & CNI Versions
-k8s_version: "1.36"
-crio_version: "1.36"
+k8s_version: "v1.36"
+crio_version: "v1.36"
 cilium_cli_version: "v0.16.19"
 
 # Internal Kubernetes Overlay Subnets (Non-overlapping with 10.10.x.x)
