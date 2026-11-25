@@ -8,10 +8,10 @@
     gpgkey: "https://download.opensuse.org/repositories/isv:/cri-o:/stable:/{{ crio_version }}:/build/rpm/repodata/repomd.xml.key"
 
 
-- name: 2. Add official Kubernetes v{{ k8s_version }} YUM repository
+- name: 2. Add official Kubernetes {{ k8s_version }} YUM repository
   ansible.builtin.yum_repository:
     name: kubernetes
-    description: Kubernetes Official Repository v{{ k8s_version }}
+    description: Kubernetes Official Repository {{ k8s_version }}
     baseurl: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/rpm/"
     gpgcheck: true
     gpgkey: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/rpm/repodata/repomd.xml.key"
